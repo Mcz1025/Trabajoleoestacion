@@ -1,0 +1,104 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "DFRobot_EnvironmentalSensor.h"
+#include "DFRobot_AirQualitySensor.h"
+
+// -------------------- Configuración OLED --------------------
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDR 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// -------------------- Sensores --------------------
+// SEN0501 (Environmental Sensor)
+DFRobot_EnvironmentalSensor environment(SEN050X_DEFAULT_DEVICE_ADDRESS, &Wire);
+
+// SEN0460 (Air Quality Sensor - PM)
+#define SEN0460_ADDR 0x19
+DFRobot_AirQualitySensor particle(&Wire, SEN0460_ADDR);
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(21, 22);  // Pines SDA=21, SCL=22 en LilyGO
+
+  // --- Inicializar OLED ---
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println(F("❌ Error al inicializar OLED"));
+    for (;;);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Iniciando sensores...");
+  display.display();
+
+  // --- Inicializar SEN0501 ---
+  while (environment.begin() != 0) {
+    Serial.println("❌ SEN0501 no detectado...");
+    delay(1000);
+  }
+  Serial.println("✅ SEN0501 inicializado");
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("SEN0501 OK!");
+  display.display();
+  delay(1000);
+
+  // --- Inicializar SEN0460 ---
+  while (!particle.begin()) {
+    Serial.println("❌ SEN0460 no detectado...");
+    delay(1000);
+  }
+  Serial.println("✅ SEN0460 inicializado");
+
+  uint8_t version = particle.gainVersion();
+  Serial.print("Versión SEN0460: ");
+  Serial.println(version);
+}
+
+void loop() {
+  // ------------------- SEN0501 -------------------
+  float tempC = environment.getTemperature(TEMP_C);
+  float hum   = environment.getHumidity();
+  float uv    = environment.getUltravioletIntensity();
+  float lux   = environment.getLuminousIntensity();
+  float press = environment.getAtmospherePressure(HPA);
+
+  // Corrección: valores UV negativos se fuerzan a 0
+  if (uv < 0) uv = 0;
+
+  // Mostrar datos SEN0501 en Serial
+  Serial.println("===== SEN0501 =====");
+  Serial.print("Temp: "); Serial.print(tempC); Serial.println(" °C");
+  Serial.print("Humedad: "); Serial.print(hum); Serial.println(" %");
+  Serial.print("UV: "); Serial.print(uv); Serial.println(" mW/cm2");
+  Serial.print("Luz: "); Serial.print(lux); Serial.println(" lx");
+  Serial.print("Presion: "); Serial.print(press); Serial.println(" hPa");
+
+  // Mostrar en OLED solo SEN0501
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("SEN0501");
+  display.print("T: "); display.print(tempC); display.println(" C");
+  display.print("H: "); display.print(hum); display.println(" %");
+  display.print("UV: "); display.print(uv); display.println(" mW/cm2");
+  display.print("Luz: "); display.print(lux); display.println(" lx");
+  display.print("P: "); display.print(press); display.println(" hPa");
+  display.display();
+
+  // ------------------- SEN0460 -------------------
+  uint16_t PM1_0 = particle.gainParticleConcentration_ugm3(PARTICLE_PM1_0_ATMOSPHERE);
+  uint16_t PM2_5 = particle.gainParticleConcentration_ugm3(PARTICLE_PM2_5_ATMOSPHERE);
+  uint16_t PM10  = particle.gainParticleConcentration_ugm3(PARTICLE_PM10_ATMOSPHERE);
+
+  Serial.println("===== SEN0460 =====");
+  Serial.print("PM1.0: "); Serial.print(PM1_0); Serial.println(" ug/m³");
+  Serial.print("PM2.5: "); Serial.print(PM2_5); Serial.println(" ug/m³");
+  Serial.print("PM10: "); Serial.print(PM10); Serial.println(" ug/m³");
+
+  Serial.println("--------------------------------\n");
+  delay(2000);
+}
