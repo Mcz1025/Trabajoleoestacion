@@ -17,7 +17,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define SCL_PIN 22
 int windDirectionPin = 35; // Analógico
 int windSpeedPin     = 14; // Digital (interrupción)
-int rainfallPin      = 15; // Digital (más seguro que GPIO15)
+int rainfallPin      = 15; // Digital (ADC)
 
 // -------------------- INSTANCIAS DE SENSORES --------------------
 DFRobot_EnvironmentalSensor environment(SEN050X_DEFAULT_DEVICE_ADDRESS, &Wire);
