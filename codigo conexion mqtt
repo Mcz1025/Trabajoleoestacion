@@ -1,0 +1,195 @@
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <time.h>
+
+// ======== Credenciales WiFi ========
+const char* WIFI_SSID = "Datic";
+const char* WIFI_PASS = "%4lc@ld14-TuLu4%2025*";
+
+// ======== AWS IoT ========
+const char* AWS_ENDPOINT = "a1xi7v9kwvwih2-ats.iot.us-west-2.amazonaws.com";
+const char* AWS_TOPIC = "uceva/tulua";
+
+// ======== Certificados (PEM embebidos directamente) ========
+// 🔸 CA Root
+static const char AWS_CERT_CA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6
+b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTEL
+MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv
+b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj
+ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM
+9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw
+IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6
+VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L
+93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm
+jgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC
+AYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUA
+A4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDI
+U5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUs
+N+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vv
+o/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU
+5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpy
+rqXRfboQnoZsG4q5WTP468SQvvG5
+-----END CERTIFICATE-----
+)EOF";
+
+// 🔸 Device Certificate
+static const char AWS_CERT_CRT[] PROGMEM = R"KEY(
+-----BEGIN CERTIFICATE-----
+MIIDWTCCAkGgAwIBAgIUXabF06U4DiXDm/2eX3yrX5QEdpswDQYJKoZIhvcNAQEL
+BQAwTTFLMEkGA1UECwxCQW1hem9uIFdlYiBTZXJ2aWNlcyBPPUFtYXpvbi5jb20g
+SW5jLiBMPVNlYXR0bGUgU1Q9V2FzaGluZ3RvbiBDPVVTMB4XDTI1MDkxMjA1NTAw
+NloXDTQ5MTIzMTIzNTk1OVowHjEcMBoGA1UEAwwTQVdTIElvVCBDZXJ0aWZpY2F0
+ZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANopKR5dyh9zGno+HCLz
+xPVoKy1HwwV4ACNJGjfFe5vCbg3lJz/UVioakQjYxSip/p2PVtV56vdI+UZFZFX6
+55lt3jggp3GSxM9AssNw2bC3P7hAiFxCnweax4b+fWnxP1Fal9HvGXO050j8gIHW
+f35FlsR9rbWOJGArc2bIxOy0D2IFsxRN+NvqrqTquOnNybusoiPl4oy0W1f4BcnJ
+6ULTk60CdBjOrzJZwrwRjkJk81Md2MUDcb7DU+tYm7FbfSAGmFkyTOKQu34MNyrf
+Fkb4r50pAU99UVmKxOFjxl8DCCTKxsVwoOXR9Pbd9bO57oG7qOKeUNrhPsAy7Acn
+qNkCAwEAAaNgMF4wHwYDVR0jBBgwFoAUlmLhXBKLXJHJvuebo8yiN+C5BrEwHQYD
+VR0OBBYEFPlR74IoUlefSPa4V9Scc7kjT2vsMAwGA1UdEwEB/wQCMAAwDgYDVR0P
+AQH/BAQDAgeAMA0GCSqGSIb3DQEBCwUAA4IBAQBqOuEivc1guEIRBS6KgrD7Qks3
+aiCxXz8iC5B591Ge49TAAVEmFKbgQY1Dk5UmHwUM+y43T417RuDC6tXRyuf24rJv
+R2oycQXYF5pOspx5+bQ/NktDxDOYpXRy+y2nMKedNUO7cs99SuwotFz7eM31qaOI
+qc+k4X2TYl1sgkm6EXXCj7OgSJ6EiNE0c5QStWFImva6Nay6PnnwfJuue0LwMp+2
+6OHuJRmEPud58k5eBAkOa+omjInkxCi9wNTbodaFogfEsFF5kE7/O3gP/MmIBnke
+7MjUGqSGmtnmFc0M6RTzvwT7pdnVIhm8uXZP9gxhBSrB7FSMmuSNniOlvDHN
+-----END CERTIFICATE-----
+
+)KEY";
+
+// 🔸 Private Key
+static const char AWS_CERT_PRIVATE[] PROGMEM = R"KEY(
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA2ikpHl3KH3Maej4cIvPE9WgrLUfDBXgAI0kaN8V7m8JuDeUn
+P9RWKhqRCNjFKKn+nY9W1Xnq90j5RkVkVfrnmW3eOCCncZLEz0Cyw3DZsLc/uECI
+XEKfB5rHhv59afE/UVqX0e8Zc7TnSPyAgdZ/fkWWxH2ttY4kYCtzZsjE7LQPYgWz
+FE342+qupOq46c3Ju6yiI+XijLRbV/gFycnpQtOTrQJ0GM6vMlnCvBGOQmTzUx3Y
+xQNxvsNT61ibsVt9IAaYWTJM4pC7fgw3Kt8WRvivnSkBT31RWYrE4WPGXwMIJMrG
+xXCg5dH09t31s7nugbuo4p5Q2uE+wDLsByeo2QIDAQABAoIBAFLKgg9DGpyayvaP
+MZBWIG3dbV1OuYUOyEabzHZT3Jf8zlU5nI6Nn3F1CYto8FGBSd4zcomrLe9QY0E2
+vmAeytugJU/5nHHueAALFowy/Hoi4OykmNsicUWqiIQDekbFRfkyvyDtcyRFB+zb
+3kznwRSDhjblVxHqcoWIl8/u60TEUJjxIGmegNfO4SoreKIQ+lyQhVaUfotd3RkM
+ZDpR1cJCQOTNX3/iNBb2nDVeZRwEctFrchkosQSGxMowAgkMyMix9iBcECth9wuy
+ioNpq9bju1fCgHk9iZPI7cc4B/SYZstcZM7j38DFuMMANN4pVN/UrUOyehnW4nAV
+dtt95LECgYEA/xqsF4MRysXcXNZXb4EQm8oD6AzTqLd2mOYbUceH9qMb2M3Ix1rX
+Jkf6kLOOGzABZc6+iDvF9XeBoV0nZS1IaeWs2fYbVTyCAtC5DGCzvQrMY5trjxNH
+0Jp7wT9Mcy5J3HRDTDwly7hJC3/x0tjEJ4cyN+LxI7T6hjoWD79+940CgYEA2u1H
+IL4Cz87u8klNyij/a+nJO8rnZR3v8vpK04oi5yVnjisdGRWwGdSdhLp0YB4zGtUj
+wNkrGaMf9rTi2WS+f5F8AEJ6q9sbWL0JUnr+KMJOl1ZHaadEfdchCBlO0tlvHjVB
+yEG0/UCqMcQm5qBj5IIHnQdg3YRsTU0Ekb95LX0CgYEA3NWdFjl7hHqmGaPfSwKC
+eyp1GUNJUyuGujOwgKnnFGX8rEDwR0tnJpd23B7jrLtw6k3/+HUuGCGdETBP8zEx
+F6MgcAqxfKcFsSQ4nPN1hPe9GZkoklHRgE7LRO3j4221uObYfz0uRt3ANflLQQgv
+Pjy2B1UpBI0dtmbARF+0rN0CgYAbr6YvHdh9L05IlbygtE6Y9xfb1+0rfH273KtZ
+1T5UvQY7lHg5k+SRX7IL9wiAn1EXM50x5kTtGRQRvw5xL6xntZ5Y6g9ZbHwo3L8x
+DxzVSr1lpiOh2OVwhKRIweqV/6ltyI5pJOYeoO7lHElPITmAzHDqCuTVHsoTfIn3
+ZJ+OgQKBgQC6Qo8tXuYEwkBZqOW9k/4GRhHHiawOiC+RwTmV8OwRWfFsbXkmbOyo
+wmdEL8epvmywOIMrGC0hFeqH0+4Q+0ZdxbqT3TwzTDOx1tip4qf5S78xKxnuyaxq
+t66AFiPz0JDNx8LeIqEFyS99A0FOFGcSCu75uoWH0tAuzZOCuIPaKQ==
+-----END RSA PRIVATE KEY-----
+
+)KEY";
+
+// Objetos globales
+WiFiClientSecure net;
+PubSubClient client(net);
+
+unsigned long lastPublish = 0;
+const unsigned long publishInterval = 5000; // ms
+
+// ------------------ Conexión WiFi ------------------
+void connectWiFi() {
+  Serial.print("📡 Conectando a WiFi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\n✅ WiFi conectado!");
+  Serial.print("📶 IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+// ------------------ Sincronización de hora ------------------
+void syncTime() {
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.print("⏱️ Sincronizando hora...");
+  time_t now = time(nullptr);
+  while (now < 8 * 3600 * 2) {
+    delay(500);
+    Serial.print(".");
+    now = time(nullptr);
+  }
+  Serial.println("✅ Hora sincronizada!");
+}
+
+// ------------------ Configurar AWS ------------------
+void setupAWS() {
+  net.setCACert(AWS_CERT_CA);
+  net.setCertificate(AWS_CERT_CRT);
+  net.setPrivateKey(AWS_CERT_PRIVATE);
+
+  client.setServer(AWS_ENDPOINT, 8883);
+
+  Serial.println("✅ Certificados cargados y cliente configurado");
+}
+
+// ------------------ Reconexión MQTT ------------------
+void reconnectMQTT() {
+  Serial.print("🔗 Conectando a AWS IoT Core... ");
+  
+  String clientId = "esp32-" + String((uint64_t)ESP.getEfuseMac(), HEX);
+
+  if (client.connect(clientId.c_str())) {
+    Serial.println("✅ Conectado a AWS IoT Core!");
+  } else {
+    Serial.print("❌ Falló (rc=");
+    Serial.print(client.state());
+    Serial.println(")");
+  }
+}
+
+// ------------------ Enviar mensaje ------------------
+void publishMessage() {
+  String payload = "{\"temperatura\": 25.6, \"humedad\": 60}";
+  if (client.publish(AWS_TOPIC, payload.c_str())) {
+    Serial.print("📤 Enviado a ");
+    Serial.print(AWS_TOPIC);
+    Serial.print(": ");
+    Serial.println(payload);
+  } else {
+    Serial.println("⚠️ Error al publicar mensaje");
+  }
+}
+
+// ------------------ SETUP ------------------
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  
+  connectWiFi();
+  syncTime();   // Necesario antes del SSL
+  setupAWS();
+  reconnectMQTT();
+}
+
+// ------------------ LOOP ------------------
+void loop() {
+  if (!client.connected()) {
+    reconnectMQTT();
+  }
+
+  client.loop();
+
+  unsigned long now = millis();
+  if (now - lastPublish > publishInterval) {
+    lastPublish = now;
+    publishMessage();
+  }
+}
