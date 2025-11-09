@@ -1,0 +1,141 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "DFRobot_EnvironmentalSensor.h"
+#include "DFRobot_AirQualitySensor.h"
+#include "SparkFun_Weather_Meter_Kit_Arduino_Library.h"
+
+// -------------------- Configuración OLED --------------------
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDR 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// -------------------- Sensores DFRobot --------------------
+// SEN0501 (Environmental Sensor)
+DFRobot_EnvironmentalSensor environment(SEN050X_DEFAULT_DEVICE_ADDRESS, &Wire);
+
+// SEN0460 (Air Quality Sensor - PM)
+#define SEN0460_ADDR 0x19
+DFRobot_AirQualitySensor particle(&Wire, SEN0460_ADDR);
+
+// -------------------- Sensor meteorológico DS-15901 --------------------
+// Pines elegidos para LilyGO TTGO LoRa32
+int windDirectionPin = 35;  // ADC - Veleta
+int windSpeedPin     = 14;  // Digital - Anemómetro
+int rainfallPin      = 15;  // Digital - Pluviómetro
+
+// Crear instancia del kit meteorológico
+SFEWeatherMeterKit weatherMeterKit(windDirectionPin, windSpeedPin, rainfallPin);
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(21, 22);  // Pines SDA=21, SCL=22 en LilyGO
+
+  // --- Inicializar OLED ---
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println(F("❌ Error al inicializar OLED"));
+    for (;;);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Iniciando sensores...");
+  display.display();
+
+  // --- Inicializar SEN0501 ---
+  while (environment.begin() != 0) {
+    Serial.println("❌ SEN0501 no detectado...");
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("SEN0501 no detectado");
+    display.display();
+    delay(1000);
+  }
+  Serial.println("✅ SEN0501 inicializado");
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("SEN0501 OK!");
+  display.display();
+  delay(1000);
+
+  // --- Inicializar SEN0460 ---
+  int intentos = 0;
+  while (!particle.begin()) {
+    Serial.println("❌ SEN0460 no detectado...");
+    delay(1000);
+    intentos++;
+    if (intentos > 5) {
+      Serial.println("⚠️ No se pudo inicializar SEN0460 tras 5 intentos.");
+      break;
+    }
+  }
+  if (particle.begin()) {
+    Serial.println("✅ SEN0460 inicializado");
+    uint8_t version = particle.gainVersion();
+    Serial.print("Versión SEN0460: ");
+    Serial.println(version);
+  }
+
+  // --- Inicializar kit meteorológico ---
+#ifdef SFE_WMK_PLAFTORM_UNKNOWN
+  weatherMeterKit.setADCResolutionBits(12);  // ADC de 12 bits en ESP32
+#endif
+  weatherMeterKit.begin();
+  Serial.println("✅ DS-15901 (Weather Meter) inicializado");
+
+  // --- OLED listo ---
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Sensores OK!");
+  display.display();
+  delay(1000);
+}
+
+void loop() {
+  // =================== SEN0501 ===================
+  float tempC = environment.getTemperature(TEMP_C);
+  float hum   = environment.getHumidity();
+  float uv    = environment.getUltravioletIntensity();
+  float lux   = environment.getLuminousIntensity();
+  float press = environment.getAtmospherePressure(HPA);
+  if (uv < 0) uv = 0;
+
+  Serial.println("===== SEN0501 =====");
+  Serial.printf("Temp: %.2f°C | Humedad: %.2f%% | UV: %.2f mW/cm2 | Luz: %.0f lx | Presion: %.1f hPa\n",
+                tempC, hum, uv, lux, press);
+
+  // =================== SEN0460 ===================
+  if (particle.begin()) {
+    uint16_t PM1_0 = particle.gainParticleConcentration_ugm3(PARTICLE_PM1_0_ATMOSPHERE);
+    uint16_t PM2_5 = particle.gainParticleConcentration_ugm3(PARTICLE_PM2_5_ATMOSPHERE);
+    uint16_t PM10  = particle.gainParticleConcentration_ugm3(PARTICLE_PM10_ATMOSPHERE);
+
+    Serial.println("===== SEN0460 =====");
+    Serial.printf("PM1.0: %u | PM2.5: %u | PM10: %u ug/m³\n", PM1_0, PM2_5, PM10);
+  }
+
+  // =================== DS-15901 ===================
+  float windDir = weatherMeterKit.getWindDirection();   // grados
+  float windSpd = weatherMeterKit.getWindSpeed();       // km/h
+  float rainMM  = weatherMeterKit.getTotalRainfall();   // mm
+
+  Serial.println("===== DS-15901 Weather Meter =====");
+  Serial.printf("Dir: %.1f° | Vel: %.2f km/h | Lluvia total: %.2f mm\n",
+                windDir, windSpd, rainMM);
+  Serial.println("--------------------------------\n");
+
+  // =================== OLED ===================
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Weather Station");
+  display.print("T: "); display.print(tempC); display.println(" C");
+  display.print("H: "); display.print(hum); display.println(" %");
+  display.print("P: "); display.print(press); display.println(" hPa");
+  display.print("Vv: "); display.print(windSpd); display.println(" km/h");
+  display.print("Dir: "); display.print(windDir); display.println("°");
+  display.display();
+
+  delay(2000);
+}
